@@ -6,6 +6,7 @@
   <title>牙套计时</title>
   <meta name="description" content="记录隐形牙套每日佩戴时长，目标每天 22 小时">
   <meta name="theme-color" content="#0d9488">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a1220">
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./icons/icon-192.png">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
@@ -59,6 +60,8 @@
         <div class="segmented">
           <button id="range-7" class="active">近7天</button>
           <button id="range-30">近30天</button>
+          <button id="range-w">按周</button>
+          <button id="range-m">按月</button>
         </div>
       </div>
 
@@ -70,12 +73,12 @@
       </div>
 
       <div class="card">
-        <div class="card-title">每日佩戴时长（小时）</div>
+        <div class="card-title" id="bar-title">每日佩戴时长（小时）</div>
         <div id="bar-chart" class="chart-box"></div>
         <div id="bar-caption" class="chart-caption">点击柱子可查看当天详情</div>
       </div>
 
-      <div class="card">
+      <div class="card" id="timeline-card">
         <div class="card-title">每日时间线<span class="legend"><i class="lg lg-on"></i>佩戴中 <i class="lg lg-off"></i>已摘下 <i class="lg lg-now"></i>现在</span></div>
         <div id="timeline-chart" class="chart-box"></div>
       </div>

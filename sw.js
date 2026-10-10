@@ -1,6 +1,6 @@
 /* Service Worker：缓存 app shell，离线可打开。
  * 每次发版更新文件内容时，把 CACHE 版本号 +1 即可让客户端自动刷新缓存。 */
-var CACHE = 'aligner-v1';
+var CACHE = 'aligner-v3';
 var ASSETS = [
   './',
   './index.html',

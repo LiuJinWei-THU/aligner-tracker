@@ -162,6 +162,29 @@
     assertEq('首事件off：开放区间到now', ivs2.length === 1 && ivs2[0][0] === ts(0, 9) && ivs2[0][1] === ts(0, 10), true);
   })();
 
+  // 14. 周桶与月桶聚合
+  (function () {
+    var wd = new Date(T.weekStart(ts(0, 15)));
+    assertTrue('weekStart 是周一且为当天 0 点', wd.getDay() === 1 && wd.getHours() === 0 && wd.getMinutes() === 0);
+    assertTrue('weekStart 不晚于今天且在一周内', T.weekStart(ts(0, 15)) <= ts(0, 0) && T.weekStart(ts(0, 15)) > ts(0, 0) - 7 * 24 * H);
+
+    var events = [ev('off', ts(-1, 12)), ev('on', ts(-1, 13))]; // 昨天 23h，今天 0-20h 佩戴中
+    var wk = T.weeklyStats(events, ts(0, 20), 2, 22 * H);
+    assertEq('周桶数量=2', wk.length, 2);
+    var worn = wk[0].wornMs + wk[1].wornMs;
+    assertClose('两周合计佩戴 = 23h + 20h', worn / H, 43, 0.001);
+    assertEq('两周达标天数=1（仅昨天）', wk[0].metCount + wk[1].metCount, 1);
+    assertEq('当前周 isCurrent 标记', wk[1].isCurrent, true);
+    assertEq('当前周标签=本周', wk[1].label, '本周');
+
+    var mo = T.monthlyStats(events, ts(0, 20), 2, 22 * H);
+    assertEq('月桶数量=2', mo.length, 2);
+    assertEq('两个月有效天数合计=2', mo[0].validCount + mo[1].validCount, 2);
+    assertEq('当前月标签=本月', mo[1].label, '本月');
+    var md = new Date(mo[0].start);
+    assertTrue('月桶起点为当月1日0点', md.getDate() === 1 && md.getHours() === 0);
+  })();
+
   // 渲染结果
   var ul = document.getElementById('results');
   results.forEach(function (r) {

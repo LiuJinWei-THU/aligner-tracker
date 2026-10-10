@@ -1,14 +1,20 @@
-/* 页面逻辑：三个页签、状态切换、编辑补录、导入导出 */
+/* 页面逻辑：三个页签、状态切换、编辑补录、导入导出、多周期统计 */
 (function () {
   'use strict';
 
   var S = window.AlignerStorage;
   var T = window.AlignerStats;
   var CH = window.AlignerCharts;
+  var H = 3600000;
 
   var data = S.load();
-  var range = 7; // 统计页当前显示天数
+  var range = '7'; // '7' | '30' | 'w'（近12周）| 'm'（近12月）
   var $ = function (id) { return document.getElementById(id); };
+
+  // 统计页当前渲染所依据的数据（供柱子点击回调使用）
+  var curMode = 'day';
+  var curDays = null;    // 日视图
+  var curBuckets = null; // 周/月视图
 
   /* ---------------- 工具 ---------------- */
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
@@ -56,7 +62,7 @@
     document.querySelectorAll('.tabbar button').forEach(function (b) {
       b.classList.toggle('active', b.dataset.tab === name);
     });
-    if (name === 'stats') refreshStats();
+    if (name === 'stats') renderStats(true);
     if (name === 'records') refreshRecords();
     window.scrollTo(0, 0);
   }
@@ -64,7 +70,7 @@
   /* ---------------- 主页（今天） ---------------- */
   function refreshHome() {
     var now = Date.now();
-    var goalMs = data.settings.dailyGoalHours * 3600000;
+    var goalMs = data.settings.dailyGoalHours * H;
     var wearing = T.currentState(data.events);
     var session = T.sessionInfo(data.events, now);
     var today = T.dailyStats(data.events, now, 1)[0];
@@ -77,7 +83,7 @@
 
     // 进度环
     var ratio = goalMs > 0 ? wornMs / goalMs : 0;
-    $('ring-holder').innerHTML = CH.ring(ratio, wearing ? null : '#f59e0b');
+    $('ring-holder').innerHTML = CH.ring(ratio, wearing ? 'var(--c-green)' : 'var(--c-orange)');
     $('ring-main').textContent = fmtDur(wornMs);
     var met = wornMs >= goalMs;
     $('ring-sub').textContent = met ? '已达成今日目标 🎉' : '目标 ' + data.settings.dailyGoalHours + ' 小时';
@@ -86,7 +92,7 @@
     var allowance = goalMs - wornMs;
     var ac = $('allowance-card');
     if (allowance > 0) {
-      var remaining = Math.max(0, 24 * 3600000 - (now - T.startOfDay(now))); // 今天剩余总时间
+      var remaining = Math.max(0, 24 * H - (now - T.startOfDay(now)));
       var msg = '今天还能摘 <b>' + fmtDur(Math.min(allowance, remaining)) + '</b>';
       if (allowance >= remaining) msg = '今天剩余时间都戴着，即可达成目标';
       ac.innerHTML = msg + '<span class="card-sub">超过就要戴满 24 小时了</span>';
@@ -139,15 +145,65 @@
   }
 
   /* ---------------- 统计页 ---------------- */
-  function refreshStats() {
+  function rangeInfo() {
+    switch (range) {
+      case 'w': return { mode: 'week', unit: '周', buckets: 12, title: '每周平均每天佩戴（小时）', caption: '点击柱子可查看该周详情' };
+      case 'm': return { mode: 'month', unit: '月', buckets: 12, title: '每月平均每天佩戴（小时）', caption: '点击柱子可查看该月详情' };
+      case '30': return { mode: 'day', days: 30, title: '每日佩戴时长（小时）', caption: '点击柱子可查看当天详情' };
+      default: return { mode: 'day', days: 7, title: '每日佩戴时长（小时）', caption: '点击柱子可查看当天详情' };
+    }
+  }
+
+  function renderStats(animate) {
     var now = Date.now();
     var goalHours = data.settings.dailyGoalHours;
-    var goalMs = goalHours * 3600000;
-    var days = T.dailyStats(data.events, now, range);
-    var sum = T.summarize(days, goalMs);
+    var goalMs = goalHours * H;
+    var info = rangeInfo();
+    var goalHours_ = goalHours; // 局部别名，供下方闭包使用
+    var items, days;
 
+    if (info.mode === 'day') {
+      curMode = 'day';
+      curBuckets = null;
+      days = T.dailyStats(data.events, now, info.days);
+      curDays = days;
+      items = days.map(function (d) {
+        return {
+          label: d.isToday ? '今天' : CH.dateLabel(d.date),
+          valueMs: d.wornMs,
+          met: d.wornMs !== null && d.wornMs >= goalMs,
+          isCurrent: d.isToday,
+          tip: CH.dateLabel(d.date) + ' ' + CH.weekdayLabel(d.date)
+        };
+      });
+      $('timeline-card').style.display = '';
+      $('timeline-chart').innerHTML = CH.timeline(days, now);
+    } else {
+      curMode = info.mode;
+      curDays = null;
+      var buckets = info.mode === 'week'
+        ? T.weeklyStats(data.events, now, info.buckets, goalMs)
+        : T.monthlyStats(data.events, now, info.buckets, goalMs);
+      curBuckets = buckets;
+      items = buckets.map(function (b) {
+        return {
+          label: b.label,
+          valueMs: b.avgMs,
+          met: b.avgMs !== null && b.avgMs >= goalMs,
+          isCurrent: b.isCurrent,
+          tip: bucketRangeLabel(b, info.unit)
+        };
+      });
+      // 汇总卡片基于覆盖整段周期的每日数据
+      var spanDays = Math.round((T.startOfDay(now) - buckets[0].start) / 86400000) + 1;
+      days = T.dailyStats(data.events, now, spanDays);
+      $('timeline-card').style.display = 'none';
+    }
+
+    // 汇总卡片
+    var sum = T.summarize(days, goalMs);
     $('sum-avg').textContent = fmtDur(Math.round(sum.avgMs));
-    $('sum-avg-sub').textContent = '平均每天佩戴';
+    $('sum-avg-sub').textContent = info.mode === 'day' ? '平均每天佩戴' : '平均每天佩戴（近' + info.buckets + info.unit + '）';
     $('sum-met').textContent = sum.metCount + '/' + sum.validCount;
     $('sum-met-sub').textContent = '达标天数（≥' + goalHours + 'h）';
     $('sum-streak').textContent = sum.streak;
@@ -155,24 +211,48 @@
     $('sum-rate').textContent = Math.round(sum.rate * 100) + '%';
     $('sum-rate-sub').textContent = '达标率';
 
+    // 柱状图
+    $('bar-title').textContent = info.title;
     var bar = $('bar-chart');
-    bar.innerHTML = CH.barChart(days, goalHours);
+    bar.innerHTML = CH.barChart(items, goalHours, { animate: animate });
     bar.querySelectorAll('rect[data-idx]').forEach(function (r) {
       r.addEventListener('click', function () {
-        var d = days[Number(r.dataset.idx)];
-        if (!d || d.wornMs === null) return;
-        var goalMs2 = goalHours * 3600000;
-        var met2 = d.wornMs >= goalMs2;
-        $('bar-caption').innerHTML =
-          '<b>' + (d.isToday ? '今天' : CH.dateLabel(d.date) + ' ' + CH.weekdayLabel(d.date)) + '</b>：' +
-          '佩戴 ' + fmtDur(d.wornMs) +
-          '，未戴 ' + fmtDur(d.offMs) +
-          (met2 ? ' <span class="ok">✓ 达标</span>' : ' <span class="miss">✗ 未达标</span>');
+        var idx = Number(r.dataset.idx);
+        $('bar-caption').innerHTML = curMode === 'day'
+          ? dayCaption(curDays[idx], goalHours_)
+          : bucketCaption(curBuckets[idx], info.unit);
       });
     });
-    $('bar-caption').textContent = '点击柱子可查看当天详情';
+    $('bar-caption').textContent = info.caption;
+  }
 
-    $('timeline-chart').innerHTML = CH.timeline(days, now);
+  function dayCaption(d, goalHours) {
+    if (!d || d.wornMs === null) return '';
+    var met = d.wornMs >= goalHours * H;
+    return '<b>' + (d.isToday ? '今天' : CH.dateLabel(d.date) + ' ' + CH.weekdayLabel(d.date)) + '</b>：' +
+      '佩戴 ' + fmtDur(d.wornMs) + '，未戴 ' + fmtDur(d.offMs) +
+      (met ? ' <span class="ok">✓ 达标</span>' : ' <span class="miss">✗ 未达标</span>');
+  }
+
+  function bucketRangeLabel(b, unit) {
+    var s = new Date(b.start);
+    if (unit === '周') {
+      var e = new Date(T.addDays(b.start, 6));
+      return (s.getMonth() + 1) + '月' + s.getDate() + '日–' + (e.getMonth() + 1) + '月' + e.getDate() + '日';
+    }
+    return s.getFullYear() + '年' + (s.getMonth() + 1) + '月';
+  }
+
+  function bucketCaption(b, unit) {
+    if (!b) return '';
+    var range = bucketRangeLabel(b, unit);
+    if (b.validCount === 0) return '<b>' + range + '</b>：无记录';
+    var status = b.isCurrent ? '本' + unit + '进行中' : '共 ' + b.validCount + ' 天';
+    var met = b.avgMs >= data.settings.dailyGoalHours * H;
+    return '<b>' + range + '</b>（' + status + '）：平均 ' + fmtDur(Math.round(b.avgMs)) + '/天' +
+      '，达标 ' + b.metCount + '/' + b.validCount + ' 天' +
+      '，共佩戴 ' + fmtDur(b.wornMs) +
+      (met ? ' <span class="ok">✓</span>' : ' <span class="miss">✗</span>');
   }
 
   /* ---------------- 记录页 ---------------- */
@@ -184,7 +264,6 @@
       return;
     }
 
-    // 按天分组（倒序）
     var groups = [];
     var curDay = null;
     normalized.forEach(function (e) {
@@ -349,7 +428,7 @@
   /* ---------------- 总刷新 ---------------- */
   function refreshAll() {
     refreshHome();
-    if ($('page-stats').classList.contains('active')) refreshStats();
+    if ($('page-stats').classList.contains('active')) renderStats(false);
     if ($('page-records').classList.contains('active')) refreshRecords();
   }
 
@@ -361,12 +440,18 @@
       b.addEventListener('click', function () { switchTab(b.dataset.tab); });
     });
 
-    $('range-7').addEventListener('click', function () { range = 7; setRangeBtns(); refreshStats(); });
-    $('range-30').addEventListener('click', function () { range = 30; setRangeBtns(); refreshStats(); });
+    [['7', 'range-7'], ['30', 'range-30'], ['w', 'range-w'], ['m', 'range-m']].forEach(function (pair) {
+      $(pair[1]).addEventListener('click', function () {
+        range = pair[0];
+        setRangeBtns();
+        renderStats(true);
+      });
+    });
 
     function setRangeBtns() {
-      $('range-7').classList.toggle('active', range === 7);
-      $('range-30').classList.toggle('active', range === 30);
+      [['7', 'range-7'], ['30', 'range-30'], ['w', 'range-w'], ['m', 'range-m']].forEach(function (pair) {
+        $(pair[1]).classList.toggle('active', range === pair[0]);
+      });
     }
     setRangeBtns();
 
@@ -411,11 +496,11 @@
     });
     $('btn-clear').addEventListener('click', clearAll);
 
-    // 每秒刷新主页（实时计时），每 30 秒刷新统计页（今天的柱子慢慢长高）
+    // 每秒刷新主页（实时计时）；统计页仅在可见时每 30 秒静默刷新（不重播动画）
     setInterval(refreshHome, 1000);
     var tick = 0;
     setInterval(function () {
-      if ($('page-stats').classList.contains('active') && (++tick % 30 === 0)) refreshStats();
+      if ($('page-stats').classList.contains('active') && (++tick % 30 === 0)) renderStats(false);
     }, 1000);
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden) refreshAll();

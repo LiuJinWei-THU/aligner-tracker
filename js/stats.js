@@ -154,6 +154,85 @@
     }).length;
   }
 
+  /* ---------- 周 / 月聚合 ---------- */
+
+  function weekStart(ts) {
+    var d = new Date(ts);
+    var dow = (d.getDay() + 6) % 7; // 0 = 周一
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - dow);
+    return d.getTime();
+  }
+
+  function monthStart(ts) {
+    var d = new Date(ts);
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+
+  function fmtMD(ts) {
+    var d = new Date(ts);
+    return (d.getMonth() + 1) + '/' + d.getDate();
+  }
+
+  /* 通用分桶：starts 为升序的桶起点（本地 0 点）。
+   * 每桶返回 { start, end, label, isCurrent, validCount, metCount, wornMs, avgMs }。
+   * avgMs = 该桶内有数据天的平均每日佩戴时长；无数据天为 null。 */
+  function bucketize(events, now, starts, goalMs, labelFn) {
+    var daysSpan = Math.round((startOfDay(now) - starts[0]) / 86400000) + 1;
+    var dayMap = {};
+    dailyStats(events, now, daysSpan).forEach(function (d) { dayMap[d.date] = d; });
+
+    var out = [];
+    for (var i = 0; i < starts.length; i++) {
+      var s = starts[i];
+      var isLast = (i === starts.length - 1);
+      var e = isLast ? Infinity : starts[i + 1];
+      var worn = 0, valid = 0, met = 0;
+      for (var ds = s; ds < e && ds <= startOfDay(now); ds = startOfDay(addDays(ds, 1))) {
+        var d = dayMap[ds];
+        if (d && d.wornMs !== null) {
+          valid++; worn += d.wornMs;
+          if (d.wornMs >= goalMs) met++;
+        }
+      }
+      out.push({
+        start: s,
+        end: isLast ? addDays(startOfDay(now), 1) : e,
+        label: labelFn(s, isLast),
+        isCurrent: isLast,
+        validCount: valid,
+        metCount: met,
+        wornMs: worn,
+        avgMs: valid ? worn / valid : null
+      });
+    }
+    return out;
+  }
+
+  /* 近 count 周（本周在末尾），每周从周一开始 */
+  function weeklyStats(events, now, count, goalMs) {
+    var thisWeek = weekStart(now);
+    var starts = [];
+    for (var k = count - 1; k >= 0; k--) starts.push(addDays(thisWeek, -7 * k));
+    return bucketize(events, now, starts, goalMs, function (s, isCurrent) {
+      return isCurrent ? '本周' : fmtMD(s);
+    });
+  }
+
+  /* 近 count 月（本月在末尾） */
+  function monthlyStats(events, now, count, goalMs) {
+    var d0 = new Date(now);
+    var starts = [];
+    for (var k = count - 1; k >= 0; k--) {
+      starts.push(new Date(d0.getFullYear(), d0.getMonth() - k, 1).getTime());
+    }
+    return bucketize(events, now, starts, goalMs, function (s, isCurrent) {
+      return isCurrent ? '本月' : ((new Date(s).getMonth() + 1) + '月');
+    });
+  }
+
   var AlignerStats = {
     HOUR: HOUR,
     startOfDay: startOfDay,
@@ -164,7 +243,11 @@
     dailyStats: dailyStats,
     summarize: summarize,
     sessionInfo: sessionInfo,
-    offCountToday: offCountToday
+    offCountToday: offCountToday,
+    weekStart: weekStart,
+    monthStart: monthStart,
+    weeklyStats: weeklyStats,
+    monthlyStats: monthlyStats
   };
 
   global.AlignerStats = AlignerStats;
