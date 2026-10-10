@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>stats.js 单元测试</title>
+<style>
+  body { font-family: Consolas, monospace; padding: 24px; background: #111; color: #ddd; }
+  h1 { font-size: 18px; }
+  li { padding: 4px 8px; margin: 2px 0; border-radius: 4px; list-style: none; }
+  .pass { background: #052e16; color: #4ade80; }
+  .fail { background: #450a0a; color: #f87171; white-space: pre-wrap; }
+  #summary { font-size: 16px; font-weight: bold; margin-top: 12px; }
+</style>
+</head>
+<body>
+<h1>stats.js 单元测试（本地时区）</h1>
+<ul id="results"></ul>
+<div id="summary"></div>
+
+<script src="../js/stats.js"></script>
+<script>
+(function () {
+  'use strict';
+  var T = window.AlignerStats;
+  var results = [];
+  var failed = 0;
+
+  function assertEq(name, actual, expected) {
+    var ok = Object.is(actual, expected);
+    if (!ok) { failed++; }
+    results.push({ name: name, ok: ok, detail: '  期望 ' + JSON.stringify(expected) + '，实际 ' + JSON.stringify(actual) });
+  }
+  function assertClose(name, actual, expected, tol) {
+    var ok = Math.abs(actual - expected) <= (tol || 1);
+    if (!ok) failed++;
+    results.push({ name: name, ok: ok, detail: '  期望约 ' + expected + '，实际 ' + actual });
+  }
+  function assertTrue(name, cond) {
+    if (!cond) failed++;
+    results.push({ name: name, ok: !!cond, detail: '' });
+  }
+
+  var H = 3600000, M = 60000;
+  // 用本地时间组件构造，测试与机器时区无关
+  function ts(dayOffset, h, m) {
+    var d = new Date();
+    d.setDate(d.getDate() + dayOffset);
+    d.setHours(h, m || 0, 0, 0);
+    return d.getTime();
+  }
+
+  function ev(type, t) { return { id: type + t, type: type, ts: t }; }
+  function wornOf(events, now, dayStart) {
+    var days = T.dailyStats(events, now, 3); // [前天, 昨天, 今天]
+    for (var i = 0; i < days.length; i++) {
+      if (days[i].date === dayStart) return days[i].wornMs;
+    }
+    return -1;
+  }
+
+  // 1. 基本区间：昨天 12:00 摘 → 13:00 戴，昨天佩戴 23h
+  (function () {
+    var events = [ev('off', ts(-1, 12)), ev('on', ts(-1, 13))];
+    assertClose('基本区间：昨天摘1小时 → 昨天佩戴23h', wornOf(events, ts(0, 20), ts(-1, 0)) / H, 23, 0.001);
+  })();
+
+  // 2. 跨午夜：昨天 23:00 摘 → 今天 01:00 戴
+  (function () {
+    var events = [ev('off', ts(-1, 23)), ev('on', ts(0, 1))];
+    assertClose('跨午夜：昨天佩戴23h', wornOf(events, ts(0, 20), ts(-1, 0)) / H, 23, 0.001);
+    assertClose('跨午夜：今天(截至20:00)佩戴19h', wornOf(events, ts(0, 20), ts(0, 0)) / H, 19, 0.001);
+  })();
+
+  // 3. 连续同类事件（忘按导致两次 off）：取第一个生效
+  (function () {
+    var events = [ev('off', ts(-1, 12)), ev('off', ts(-1, 12, 30)), ev('on', ts(-1, 13))];
+    assertClose('冗余off被忽略：昨天佩戴23h', wornOf(events, ts(0, 20), ts(-1, 0)) / H, 23, 0.001);
+    assertEq('冗余off不计入今日摘下次数', T.offCountToday(events.concat([ev('on', ts(0, 8))]), ts(0, 20)), 0);
+    var norm = T.normalize(events);
+    assertTrue('冗余标记正确', norm[1]._redundant === true && norm[0]._redundant === false && norm[2]._redundant === false);
+  })();
+
+  // 4. 首个事件是 off（正常首次使用：戴着开始记录）
+  (function () {
+    var events = [ev('off', ts(-1, 8)), ev('on', ts(-1, 9))];
+    assertClose('首个事件off：之前视为佩戴 → 昨天23h', wornOf(events, ts(0, 20), ts(-1, 0)) / H, 23, 0.001);
+  })();
+
+  // 5. 首个事件是 on（9:00 才戴上）：当天 00:00 起视为未戴
+  (function () {
+    var events = [ev('on', ts(-1, 9)), ev('off', ts(-1, 12)), ev('on', ts(-1, 13))];
+    assertClose('首个事件on：00-09点未戴+12-13点未戴 → 昨天14h', wornOf(events, ts(0, 20), ts(-1, 0)) / H, 14, 0.001);
+  })();
+
+  // 6. 开放区间：今天 12:00 摘下未戴回，now=14:00 → 今天佩戴 12h
+  (function () {
+    var events = [ev('off', ts(0, 12))];
+    assertClose('开放区间：今天12:00摘，14:00时已戴12h', wornOf(events, ts(0, 14), ts(0, 0)) / H, 12, 0.001);
+    assertTrue('currentState：未戴', T.currentState(events) === false);
+  })();
+
+  // 7. 无事件：默认佩戴中，今天 worn = 已过时间
+  (function () {
+    var days = T.dailyStats([], ts(0, 18), 3);
+    assertClose('无事件：今天按佩戴计=18h', days[2].wornMs / H, 18, 0.001);
+    assertTrue('无事件：currentState 默认佩戴', T.currentState([]) === true);
+    assertTrue('无事件：前天/昨天无数据', days[0].wornMs === null && days[1].wornMs === null);
+  })();
+
+  // 8. 记录起点之前的日期无数据
+  (function () {
+    var events = [ev('off', ts(0, 12)), ev('on', ts(0, 13))];
+    var days = T.dailyStats(events, ts(0, 20), 7);
+    var nullCount = days.filter(function (d) { return d.wornMs === null; }).length;
+    assertEq('记录起点前：6天无数据', nullCount, 6);
+  })();
+
+  // 9. 全天没摘（过去某天）：佩戴 24h
+  (function () {
+    var events = [ev('off', ts(-2, 12)), ev('on', ts(-2, 13)), ev('off', ts(0, 8)), ev('on', ts(0, 9))];
+    assertClose('全天没摘：昨天24h', wornOf(events, ts(0, 20), ts(-1, 0)) / H, 24, 0.001);
+  })();
+
+  // 10. 多段摘戴：12:00-12:30、18:00-19:00 → 佩戴 22.5h
+  (function () {
+    var events = [
+      ev('off', ts(-1, 12)), ev('on', ts(-1, 12, 30)),
+      ev('off', ts(-1, 18)), ev('on', ts(-1, 19))
+    ];
+    assertClose('多段摘戴：22.5h', wornOf(events, ts(0, 20), ts(-1, 0)) / H, 22.5, 0.001);
+    assertEq('每日摘下次数=2', T.offCountToday(events.map(function (e) {
+      return { type: e.type, ts: e.ts + 24 * H };
+    }), ts(0, 20)), 2);
+  })();
+
+  // 11. summarize：streak 不因今天未达标而断链
+  (function () {
+    var now = ts(0, 10);
+    var events = [];
+    // 前天 23h（达标），昨天 23h（达标），今天目前 10h（未达标）
+    events.push(ev('off', ts(-2, 12)), ev('on', ts(-2, 13)));
+    events.push(ev('off', ts(-1, 12)), ev('on', ts(-1, 13)));
+    var days = T.dailyStats(events, now, 3);
+    var sum = T.summarize(days, 22 * H);
+    assertEq('streak：昨天为止连续2天', sum.streak, 2);
+    assertEq('达标天数 2/3（今天未过完）', sum.metCount + '/' + sum.validCount, '2/3');
+  })();
+
+  // 12. sessionInfo
+  (function () {
+    var events = [ev('on', ts(0, 9))];
+    var s = T.sessionInfo(events, ts(0, 12));
+    assertTrue('sessionInfo：佩戴中', s.wearing === true);
+    assertClose('sessionInfo：已戴3h', s.durationMs / H, 3, 0.001);
+  })();
+
+  // 13. offIntervals 基线：首个事件是 on 时从当天 0 点起算
+  (function () {
+    var ivs = T.offIntervals([ev('on', ts(0, 9))], ts(0, 10));
+    assertEq('首事件on：off区间从00:00到09:00', ivs.length === 1 && ivs[0][0] === ts(0, 0) && ivs[0][1] === ts(0, 9), true);
+    var ivs2 = T.offIntervals([ev('off', ts(0, 9))], ts(0, 10));
+    assertEq('首事件off：开放区间到now', ivs2.length === 1 && ivs2[0][0] === ts(0, 9) && ivs2[0][1] === ts(0, 10), true);
+  })();
+
+  // 渲染结果
+  var ul = document.getElementById('results');
+  results.forEach(function (r) {
+    var li = document.createElement('li');
+    li.className = r.ok ? 'pass' : 'fail';
+    li.textContent = (r.ok ? '✓ ' : '✗ ') + r.name + (r.ok ? '' : r.detail);
+    ul.appendChild(li);
+  });
+  var sum = document.getElementById('summary');
+  sum.textContent = failed === 0 ? '全部通过：' + results.length + '/' + results.length : '失败 ' + failed + ' / ' + results.length;
+  sum.style.color = failed === 0 ? '#4ade80' : '#f87171';
+  document.title = failed === 0 ? 'PASS ' + results.length + '/' + results.length : 'FAIL ' + (results.length - failed) + '/' + results.length;
+})();
+</script>
+</body>
+</html>

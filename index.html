@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>牙套计时</title>
+  <meta name="description" content="记录隐形牙套每日佩戴时长，目标每天 22 小时">
+  <meta name="theme-color" content="#0d9488">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icons/icon-192.png">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <main id="app">
+
+    <!-- ============ 今天 ============ -->
+    <section id="page-today" class="page active">
+      <div id="status-chip" class="status-chip on">🦷 正在佩戴</div>
+
+      <div class="ring-wrap">
+        <div id="ring-holder"></div>
+        <div class="ring-center">
+          <div id="ring-main">0分钟</div>
+          <div id="ring-sub">今日已佩戴</div>
+        </div>
+      </div>
+
+      <div id="allowance-card" class="card allowance">今天还能摘 <b>--</b></div>
+
+      <div class="cards-row">
+        <div class="card stat">
+          <div class="stat-label" id="session-label">本次已戴</div>
+          <div class="stat-value" id="session-dur">--</div>
+          <div class="stat-sub" id="session-since">--</div>
+        </div>
+        <div class="card stat">
+          <div class="stat-label">今日摘下</div>
+          <div class="stat-value" id="off-count">0 次</div>
+          <div class="stat-sub">吃饭/刷牙次数</div>
+        </div>
+      </div>
+
+      <button id="btn-toggle" class="btn-main off-action">
+        <span id="btn-toggle-icon" class="btn-icon"></span>
+        <span class="btn-texts">
+          <span id="btn-toggle-text" class="btn-text">摘下牙套</span>
+          <span id="btn-toggle-sub" class="btn-sub">吃饭/刷牙时点我</span>
+        </span>
+      </button>
+    </section>
+
+    <!-- ============ 统计 ============ -->
+    <section id="page-stats" class="page">
+      <div class="page-head">
+        <h2>佩戴统计</h2>
+        <div class="segmented">
+          <button id="range-7" class="active">近7天</button>
+          <button id="range-30">近30天</button>
+        </div>
+      </div>
+
+      <div class="cards-grid4">
+        <div class="card stat"><div class="stat-value" id="sum-avg">--</div><div class="stat-sub" id="sum-avg-sub">平均每天佩戴</div></div>
+        <div class="card stat"><div class="stat-value" id="sum-met">--</div><div class="stat-sub" id="sum-met-sub">达标天数</div></div>
+        <div class="card stat"><div class="stat-value" id="sum-streak">--</div><div class="stat-sub" id="sum-streak-sub">连续达标</div></div>
+        <div class="card stat"><div class="stat-value" id="sum-rate">--</div><div class="stat-sub" id="sum-rate-sub">达标率</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">每日佩戴时长（小时）</div>
+        <div id="bar-chart" class="chart-box"></div>
+        <div id="bar-caption" class="chart-caption">点击柱子可查看当天详情</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">每日时间线<span class="legend"><i class="lg lg-on"></i>佩戴中 <i class="lg lg-off"></i>已摘下 <i class="lg lg-now"></i>现在</span></div>
+        <div id="timeline-chart" class="chart-box"></div>
+      </div>
+    </section>
+
+    <!-- ============ 记录 ============ -->
+    <section id="page-records" class="page">
+      <div class="page-head">
+        <h2>佩戴记录</h2>
+        <button id="btn-add" class="btn-primary">＋ 补录</button>
+      </div>
+
+      <div id="event-list"></div>
+
+      <div class="card settings-card">
+        <div class="card-title">设置</div>
+        <label class="field-row">
+          <span>每日目标（小时）</span>
+          <input type="number" id="goal-input" min="1" max="24" step="0.5" value="22">
+        </label>
+      </div>
+
+      <div class="card settings-card">
+        <div class="card-title">数据备份</div>
+        <p class="hint">数据保存在本机浏览器中。换手机、清除浏览器数据前，请先导出备份；恢复时导入即可。</p>
+        <div class="btn-row">
+          <button id="btn-export" class="btn-secondary">导出备份</button>
+          <button id="btn-import" class="btn-secondary">导入备份</button>
+          <button id="btn-clear" class="btn-secondary danger">清空数据</button>
+        </div>
+        <input type="file" id="import-file" accept=".json,application/json" hidden>
+      </div>
+    </section>
+  </main>
+
+  <!-- 底部页签 -->
+  <nav class="tabbar">
+    <button data-tab="today" class="active">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+      <span>今天</span>
+    </button>
+    <button data-tab="stats">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+      <span>统计</span>
+    </button>
+    <button data-tab="records">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+      <span>记录</span>
+    </button>
+  </nav>
+
+  <!-- 补录/编辑弹窗 -->
+  <div id="modal-overlay">
+    <div class="modal">
+      <div id="modal-title" class="modal-title">补录一条记录</div>
+      <label class="form-row">
+        <span>类型</span>
+        <select id="ev-type">
+          <option value="off">摘下牙套</option>
+          <option value="on">戴上牙套</option>
+        </select>
+      </label>
+      <label class="form-row">
+        <span>时间</span>
+        <input type="datetime-local" id="ev-time">
+      </label>
+      <label class="form-row">
+        <span>备注</span>
+        <input type="text" id="ev-note" maxlength="30" placeholder="选填，如：午饭">
+      </label>
+      <div class="modal-btns">
+        <button id="btn-modal-cancel" class="btn-secondary">取消</button>
+        <button id="btn-modal-save" class="btn-primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script src="./js/storage.js"></script>
+  <script src="./js/stats.js"></script>
+  <script src="./js/charts.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>
