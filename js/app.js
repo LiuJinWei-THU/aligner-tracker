@@ -88,17 +88,20 @@
     var met = wornMs >= goalMs;
     $('ring-sub').textContent = met ? '已达成今日目标 🎉' : '目标 ' + data.settings.dailyGoalHours + ' 小时';
 
-    // 还能摘多久
-    var allowance = goalMs - wornMs;
+    // 还能摘多久（不影响达成今日目标的前提下，上限 = 24h − 目标）
     var ac = $('allowance-card');
-    if (allowance > 0) {
-      var remaining = Math.max(0, 24 * H - (now - T.startOfDay(now)));
-      var msg = '今天还能摘 <b>' + fmtDur(Math.min(allowance, remaining)) + '</b>';
-      if (allowance >= remaining) msg = '今天剩余时间都戴着，即可达成目标';
-      ac.innerHTML = msg + '<span class="card-sub">超过就要戴满 24 小时了</span>';
+    var alw = T.allowanceInfo(wornMs, goalMs, now);
+    if (alw.met) {
+      ac.innerHTML = '🎉 今日目标已达成，剩余时间随意摘戴<span class="card-sub">已佩戴 ' + fmtDur(wornMs) + ' ≥ 目标 ' + data.settings.dailyGoalHours + ' 小时</span>';
+      ac.className = 'card allowance ok';
+    } else if (alw.budgetMs > 60000) {
+      ac.innerHTML = '今天还能摘 <b>' + fmtDur(alw.budgetMs) + '</b><span class="card-sub">再超过就达不成 ' + data.settings.dailyGoalHours + ' 小时目标了</span>';
       ac.className = 'card allowance';
+    } else if (alw.maxFinalMs >= goalMs) {
+      ac.innerHTML = '额度已用完，现在起需一直戴到明天<span class="card-sub">摘过的时间补不回来了</span>';
+      ac.className = 'card allowance warn';
     } else {
-      ac.innerHTML = '今天还能摘 <b>0 分钟</b>，之后需一直佩戴<span class="card-sub">想达标就别再摘啦</span>';
+      ac.innerHTML = '今天已无法达标<span class="card-sub">戴满剩余时间最多 ' + fmtDur(alw.maxFinalMs) + '，明天继续加油</span>';
       ac.className = 'card allowance warn';
     }
 

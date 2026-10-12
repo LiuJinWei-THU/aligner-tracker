@@ -185,6 +185,28 @@
     assertTrue('月桶起点为当月1日0点', md.getDate() === 1 && md.getHours() === 0);
   })();
 
+  // 15. 今日还能摘额度
+  (function () {
+    var G = 22 * H;
+    // 20:00 已戴 21h（剩 4h，还需 1h）→ 还能摘 3h
+    var a1 = T.allowanceInfo(21 * H, G, ts(0, 20));
+    assertClose('已戴21h@20:00 → 还能摘3h', a1.budgetMs / H, 3, 0.001);
+    // 额度上限 = 24h − 目标 = 2h（此刻一整天没摘：已戴=已过时间）
+    var a2 = T.allowanceInfo(13 * H, G, ts(0, 13));
+    assertClose('未摘过@13:00 → 还能摘上限2h', a2.budgetMs / H, 2, 0.001);
+    // 已戴 11h @14:00（剩 10h，还需 11h）→ 无法达标，最多 21h
+    var a3 = T.allowanceInfo(11 * H, G, ts(0, 14));
+    assertClose('已戴11h@14:00 → 额度-1h', a3.budgetMs / H, -1, 0.001);
+    assertClose('已戴11h@14:00 → 戴满最多21h', a3.maxFinalMs / H, 21, 0.001);
+    // 已戴 20h @22:00（剩 2h，还需 2h）→ 额度 0，恰好达标边界
+    var a4 = T.allowanceInfo(20 * H, G, ts(0, 22));
+    assertClose('已戴20h@22:00 → 额度0', a4.budgetMs / H, 0, 0.001);
+    assertTrue('边界时戴满恰好达标', a4.maxFinalMs >= G);
+    // 已达标
+    var a5 = T.allowanceInfo(23 * H, G, ts(0, 20));
+    assertTrue('已戴23h → met', a5.met === true);
+  })();
+
   // 渲染结果
   var ul = document.getElementById('results');
   results.forEach(function (r) {

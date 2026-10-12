@@ -154,6 +154,21 @@
     }).length;
   }
 
+  /* 今日剩余可摘额度（不影响达成 goalMs 前提下）：
+   * budgetMs = 剩余时间 − 还需佩戴时间，理论上限为 24h − goal。
+   * met=已达标；maxFinalMs=从现在戴满到明天最多能到的总时长。 */
+  function allowanceInfo(wornMs, goalMs, now) {
+    var remaining = Math.max(0, startOfDay(addDays(now, 1)) - now);
+    var needed = Math.max(0, goalMs - wornMs);
+    return {
+      remainingMs: remaining,
+      neededMs: needed,
+      met: wornMs >= goalMs,
+      budgetMs: remaining - needed,
+      maxFinalMs: wornMs + remaining
+    };
+  }
+
   /* ---------- 周 / 月聚合 ---------- */
 
   function weekStart(ts) {
@@ -247,7 +262,8 @@
     weekStart: weekStart,
     monthStart: monthStart,
     weeklyStats: weeklyStats,
-    monthlyStats: monthlyStats
+    monthlyStats: monthlyStats,
+    allowanceInfo: allowanceInfo
   };
 
   global.AlignerStats = AlignerStats;

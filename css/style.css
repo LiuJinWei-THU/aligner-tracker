@@ -136,6 +136,7 @@ body {
 .allowance { text-align: center; padding: 12px 16px; font-size: 14px; color: var(--muted); }
 .allowance b { color: var(--orange-dark); font-size: 17px; }
 .allowance.warn b { color: var(--red); }
+.allowance.ok { background: var(--green-bg); border-color: color-mix(in srgb, var(--green) 30%, transparent); }
 
 .cards-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
 .cards-grid4 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
